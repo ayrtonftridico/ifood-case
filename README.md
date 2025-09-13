@@ -181,7 +181,7 @@ ORDER BY hora_do_dia;
 ifood-case/
 ├─ src/
 │  ├─ 01_ingestao_bronze.ipynb
-│  ├─ 02_transformacao_silver.ipynb
+│  └─ 02_transformacao_silver.ipynb
 ├─ analysis/
 │  └─ analysis.ipynb
 ├─ README.md
