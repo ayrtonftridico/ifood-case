@@ -1,4 +1,4 @@
-# 🚖 iFood Data Architecture Case — NYC Yellow Taxi (README aprimorado)
+# 🚖 iFood Data Architecture Case — NYC Yellow Taxi
 
 Este repositório implementa um pipeline **reprodutível** para ingestão, padronização, modelagem e análise dos dados públicos da **NYC TLC** (Yellow Taxi) com **PySpark** e **Delta Lake**, pensado para rodar no **Databricks Community Edition** (sem acesso à internet).
 
@@ -25,13 +25,12 @@ Este repositório implementa um pipeline **reprodutível** para ingestão, padro
 
 Camadas (Data Lake):
 - **RAW (landing)**: arquivos originais exatamente como baixados (Parquet). _Somente leitura_.
-- **Bronze (SOR)**: normalização mínima de tipos/nomes, adição de coluna técnica `anomes` (YYYYMM), controle de ingestão.
-- **Silver (consumo)**: projeção e filtragem para o escopo do case (Jan–Mai/2023) e **apenas as colunas obrigatórias**.
-- **(Opcional) Gold**: agregações e métricas derivadas (não requerido, mas útil para apresentações).
+- **Bronze (SOR)**: base com historico desde 2020 com normalização mínima de tipos/nomes, adição de coluna técnica `anomes` (YYYYMM).
+- **Silver (consumo)**: projeção e filtragem para o escopo do case (Jan–Mai/2023) e **apenas as colunas obrigatórias** e um leve filtro de data quality.
 
 Tecnologias:
 - **PySpark** para ETL/ELT.
-- **Delta Lake** para armazenamento, versionamento e _time travel_.
+- **Delta Lake** para armazenamento e versionamento.
 - **SQL** para consultas analíticas aos consumidores.
 
 
@@ -58,35 +57,50 @@ Este README incorpora e **mapeia os requisitos do case** às entregas do projeto
 
 ## 📥 Como obter os dados (offline)
 
-1) **Baixe localmente** os Parquet de **Yellow Taxi** (Jan–Mai/2023). Um script de exemplo (fora do Databricks) está em `scripts/download_tlc.py` (ou use o snippet deste README).  
+1) **Baixe localmente** os Parquet de **Yellow Taxi** (Jan–Mai/2023).
+
+Script exemplo abaixo:
+
+```python
+import os, requests
+
+OUT = "nyc_taxi_yellow_2020_2025"
+os.makedirs(OUT, exist_ok=True)
+
+for year in range(2020, 2026):
+    for month in range(1, 13):
+        url = f"https://d37ci6vzurychx.cloudfront.net/trip-data/yellow_tripdata_{year}-{month:02d}.parquet"
+        path = os.path.join(OUT, f"yellow_{year}-{month:02d}.parquet")
+
+        if os.path.exists(path):
+            print("skip", path)
+            continue
+
+        r = requests.get(url)
+        if r.status_code == 200:
+            with open(path, "wb") as f:
+                f.write(r.content)
+            print("ok", url)
+        else:
+            print("miss", url, r.status_code)
+
+```
 2) **Envie os arquivos** via UI do Databricks para um **Volume** (recomendado) ou pasta gerenciada:
 
 ```
 /Volumes/<catalog>/<schema>/nyc_taxi/raw/2023/
 ```
 
-> **Por que Volume?** O Databricks CE costuma restringir DBFS público e o cluster não tem internet. Volumes funcionam bem com Unity Catalog.
-
 
 ## ▶️ Execução no Databricks CE (passo a passo)
 
-> **Observação**: Se seu ambiente **não** tiver Unity Catalog, substitua nomes `catalog.schema.tabela` por `hive_metastore.default.tabela` e paths de `/Volumes/...` por um caminho suportado (ex.: `/mnt/...`).
-
-1. **Crie catálogo/esquema/volumes** (Unity Catalog):
-   ```sql
-   CREATE CATALOG IF NOT EXISTS workspace;
-   CREATE SCHEMA  IF NOT EXISTS workspace.nyc_taxi;
-   CREATE VOLUME  IF NOT EXISTS workspace.nyc_taxi.raw;
-   CREATE VOLUME  IF NOT EXISTS workspace.nyc_taxi.silver;
-   ```
-
-2. **Faça upload** dos arquivos Parquet (Jan–Mai/2023) para:
+1. **Crie o Volume e Faça upload** dos arquivos Parquet (Jan–Mai/2023) para:
    ```
    /Volumes/workspace/nyc_taxi/raw/2023/
    ```
 
-3. **Bronze — ingestão e normalização mínima**  
-   Execute o notebook `01_ingestao_bronze.py`, que:
+2. **Bronze — ingestão e normalização mínima**  
+   Execute o notebook `01_ingestao_bronze.ipynb`, que:
    - Lê todos os Parquet em `/Volumes/workspace/nyc_taxi/raw/2023/*.parquet`
    - Padroniza schema e nomes
    - Cria `anomes` (YYYYMM) a partir de `tpep_pickup_datetime`
@@ -95,18 +109,17 @@ Este README incorpora e **mapeia os requisitos do case** às entregas do projeto
      workspace.nyc_taxi.yellowtaxi_trips_sor
      ```
 
-4. **Silver — projeção para o case**
-   Execute `02_transformacao_silver.py`, que:
+3. **Silver — projeção para o case**
+   Execute `02_transformacao_silver.ipynb`, que:
    - Seleciona **apenas** as colunas obrigatórias
    - Filtra **2023-01** a **2023-05**
    - Particiona por `anomes` e salva como Delta:
      ```
-     workspace.nyc_taxi.yellowtaxi_trips_2023_silver
+     workspace.nyc_taxi.yellowtaxi_trips_2023_spec
      ```
 
-5. **Análises**
-   Execute `03_analises.py` (ou as consultas SQL abaixo).  
-   (Opcional) `04_visualizacoes.py` gera gráficos de apoio.
+4. **Análises**
+   Execute `analysis.ipynb` (ou as consultas SQL abaixo).  
 
 
 ## 🧱 Modelagem e Particionamento
@@ -121,7 +134,7 @@ Este README incorpora e **mapeia os requisitos do case** às entregas do projeto
 **1) Média de `total_amount` por mês (Jan–Mai/2023):**
 ```sql
 SELECT anomes, ROUND(AVG(total_amount), 2) AS media_total_amount
-FROM workspace.nyc_taxi.yellowtaxi_trips_2023_silver
+FROM workspace.nyc_taxi.yellowtaxi_trips_2023_spec
 GROUP BY anomes
 ORDER BY anomes;
 ```
@@ -130,7 +143,7 @@ ORDER BY anomes;
 ```sql
 SELECT HOUR(tpep_pickup_datetime) AS hora_do_dia,
        ROUND(AVG(passenger_count), 2) AS media_passageiros
-FROM workspace.nyc_taxi.yellowtaxi_trips_2023_silver
+FROM workspace.nyc_taxi.yellowtaxi_trips_2023_spec
 WHERE anomes = '202305'
 GROUP BY hora_do_dia
 ORDER BY hora_do_dia;
@@ -152,7 +165,7 @@ ORDER BY hora_do_dia;
 
 | Campo                   | Tipo      | Descrição                                               |
 |------------------------|-----------|---------------------------------------------------------|
-| `vendorid`             | INT       | Identificador do provedor                               |
+| `vendorid`             | LONG      | Identificador do provedor                               |
 | `passenger_count`      | INT       | Número de passageiros                                   |
 | `total_amount`         | DOUBLE    | Valor total da corrida                                  |
 | `tpep_pickup_datetime` | TIMESTAMP | Data/hora do embarque                                   |
@@ -164,72 +177,19 @@ ORDER BY hora_do_dia;
 
 - **Delta Lake**: transações ACID e _time travel_ para auditoria e reprocessos.
 - **Particionamento por `anomes`**: melhora _pruning_ em filtros mensais.
-- **Auto-Optimize** (se disponível) e **OPTIMIZE + ZORDER** (opcional) em colunas de tempo.
-- **Idempotência**: pipelines projetados para reprocesso seguro de partições.
-
-
-## 🧯 Erros comuns & Troubleshooting
-
-- **Sem internet no Databricks CE / `UnknownHostException`**: baixe os Parquet **fora** do cluster e faça upload para **Volumes**.
-- **`Public DBFS root is disabled`**: prefira `/Volumes/<catalog>/<schema>/<volume>/...`.
-- **Unity Catalog — `input_file_name()` não suportado**: use **`_metadata.file_path`** para extrair ano/mês do caminho.
-- **`DATATYPE_MISMATCH` ao concatenar strings** no Spark SQL: utilize `concat()` ou `format_string()` em vez de `+` para strings.
-
 
 ## 🗂️ Estrutura do Repositório
 
 ```
 ifood-case/
 ├─ src/
-│  ├─ 01_ingestao_bronze.py
-│  ├─ 02_transformacao_silver.py
-│  ├─ 03_analises.py
-│  └─ 04_visualizacoes.py              # opcional
-├─ scripts/
-│  └─ download_tlc.py                  # download offline (local)
-├─ notebooks/                          # (opcional) versões em notebook
+│  ├─ 01_ingestao_bronze.ipynb
+│  ├─ 02_transformacao_silver.ipynb
+├─ analysis/
+│  └─ analysis.ipynb
 ├─ README.md
 └─ requirements.txt
 ```
 
 
-## 📄 Licença
 
-Uso educacional para execução do case técnico. Dados originais pertencem à NYC TLC (uso público).
-
-
----
-
-### 📎 Snippet opcional — Download local (fora do Databricks)
-
-```python
-import os, requests
-from concurrent.futures import ThreadPoolExecutor, as_completed
-
-BASE_URL = "https://d37ci6vzurychx.cloudfront.net/trip-data/{}_tripdata_{}-{}.parquet"
-CATEGORIES = ["yellow"]
-YEARS = ["2023"]
-MONTHS = [f"{i:02d}" for i in range(1, 6)]  # Jan–Mai
-
-OUTPUT_DIR = "nyc_taxi_raw"
-os.makedirs(OUTPUT_DIR, exist_ok=True)
-
-def download_file(cat, year, month):
-    url = BASE_URL.format(cat, year, month)
-    filename = os.path.join(OUTPUT_DIR, f"{cat}_{year}-{month}.parquet")
-    if os.path.exists(filename):
-        return f"⏩ Já existe: {filename}"
-    try:
-        r = requests.get(url, timeout=60)
-        r.raise_for_status()
-        with open(filename, "wb") as f:
-            f.write(r.content)
-        return f"✅ Baixado: {url}"
-    except Exception as e:
-        return f"⚠️ Erro ao baixar {url}: {e}"
-
-with ThreadPoolExecutor(max_workers=8) as ex:
-    futures = [ex.submit(download_file, c, y, m) for c in CATEGORIES for y in YEARS for m in MONTHS]
-    for f in as_completed(futures):
-        print(f.result())
-```
