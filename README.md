@@ -16,10 +16,7 @@ Este repositório implementa um pipeline **reprodutível** para ingestão, padro
 - [Validações de Qualidade de Dados](#validações-de-qualidade-de-dados)
 - [Dicionário de Dados (Silver)](#dicionário-de-dados-silver)
 - [Boas práticas e performance](#boas-práticas-e-performance)
-- [Erros comuns & Troubleshooting](#erros-comuns--troubleshooting)
 - [Estrutura do Repositório](#estrutura-do-repositório)
-- [Licença](#licença)
-
 
 ## 🏛️ Arquitetura de Dados
 
