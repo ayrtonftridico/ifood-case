@@ -1,179 +1,208 @@
-# 🚖 iFood Data Architecture Case — NYC Yellow Taxi
+# 🚖 iFood Data Architecture Case — NYC Taxis (Yellow, Green, FHV, FHVHV)
 
-Este repositório implementa um pipeline **reprodutível** para ingestão, padronização, modelagem e análise dos dados públicos da **NYC TLC** (Yellow Taxi) com **PySpark** e **Delta Lake**, pensado para rodar no **Databricks Community Edition** (sem acesso à internet).
+Este projeto implementa um pipeline **reprodutível** para ingestão, padronização, modelagem e análise dos dados públicos da **NYC TLC** usando **PySpark** e **Delta Lake** no **Databricks Community Edition** (sem acesso à internet).
+O foco do case é responder às perguntas para **Jan–Mai/2023**, com ênfase nas colunas exigidas no enunciado: `VendorID`, `passenger_count`, `total_amount`, `tpep_pickup_datetime`, `tpep_dropoff_datetime`.
 
-> **Escopo do case**: ingerir dados **Jan–Mai/2023**, disponibilizar via SQL, e responder perguntas analíticas específicas. Também são exigidas as colunas: `VendorID`, `passenger_count`, `total_amount`, `tpep_pickup_datetime`, `tpep_dropoff_datetime`.
 
+> - **Yellow**: Foram utilizados todos os arquivos de **2020–2025** para exemplificar práticas de camadas bronze-silver (robustez e volume).
+> - **Green, FHV & FHVHV:** apenas **maio/2023** (suficiente para a segunda questão).
+> - Todas as análises que exigem “todas as frotas” usam **todos os dados disponíveis por frota** acima; onde uma coluna não existe em determinada frota (ex.: `passenger_count` em FHV/HV), a métrica é computada sobre as frotas que fornecem o campo (documentado nas consultas).
+
+---
 
 ## 🧭 Sumário
 - [Arquitetura de Dados](#arquitetura-de-dados)
-- [Padrões de Entrega & Conformidade](#padrões-de-entrega--conformidade)
+- [Cobertura de Dados (por frota)](#cobertura-de-dados-por-frota)
 - [Pré-requisitos](#pré-requisitos)
 - [Como obter os dados (offline)](#como-obter-os-dados-offline)
 - [Execução no Databricks CE (passo a passo)](#execução-no-databricks-ce-passo-a-passo)
 - [Modelagem e Particionamento](#modelagem-e-particionamento)
 - [Consultas de Resposta (SQL)](#consultas-de-resposta-sql)
 - [Validações de Qualidade de Dados](#validações-de-qualidade-de-dados)
-- [Dicionário de Dados (Silver)](#dicionário-de-dados-silver)
 - [Boas práticas e performance](#boas-práticas-e-performance)
 - [Estrutura do Repositório](#estrutura-do-repositório)
+
+---
 
 ## 🏛️ Arquitetura de Dados
 
 Camadas (Data Lake):
-- **RAW (landing)**: arquivos originais exatamente como baixados (Parquet). _Somente leitura_.
-- **Bronze (SOR)**: base com historico desde 2020 com normalização mínima de tipos/nomes, adição de coluna técnica `anomes` (YYYYMM).
-- **Silver (consumo)**: projeção e filtragem para o escopo do case (Jan–Mai/2023) e **apenas as colunas obrigatórias** e um leve filtro de data quality.
+- **RAW**: arquivos originais exatamente como baixados (Parquet). _Somente leitura_.
+- **Bronze**: normalização mínima de tipos/nomes, coluna técnica `anomes` (YYYYMM) derivada de `*_pickup_datetime`, e **coluna `category`** identificando a frota: `yellow|green|fhv|fhvhv`.
+- **Silver**: projeção para o escopo do case (Jan–Mai/2023), colunas solicitadas e filtros de qualidade leves.
+- **Gold**: 
 
 Tecnologias:
-- **PySpark** para ETL/ELT.
-- **Delta Lake** para armazenamento e versionamento.
-- **SQL** para consultas analíticas aos consumidores.
+- **PySpark** para ETL/ELT, **Delta Lake** para armazenamento, **SQL** para consumo analítico.
 
+---
 
-## ✅ Padrões de Entrega & Conformidade
+## 📊 Cobertura de Dados (por frota)
 
-Este README incorpora e **mapeia os requisitos do case** às entregas do projeto:
+| Frota   | Período carregado | Observações de schema |
+|---------|--------------------|-----------------------|
+| Yellow  | 2020–2025 (todos os meses disponíveis) | Campos `tpep_*`, `passenger_count`, `total_amount` presentes. |
+| Green   | **somente 2023-05**                     | Similar a Yellow; colunas `lpep_*` em anos antigos são normalizadas. |
+| FHV     | **somente 2023-05**                     | Geralmente **não** possui `passenger_count` e `total_amount`. |
+| FHVHV   | **somente 2023-05**                     | Geralmente **não** possui `passenger_count` nem `total_amount`. |
 
-- **Ingestão no Data Lake** dos dados Yellow Taxi: **OK** (seções _Como obter os dados_ e _Execução no Databricks_).  
-- **Disponibilização para consumo (SQL)**: **OK** (tabelas Delta, seção _Consultas de Resposta_).  
-- **Uso de PySpark**: **OK** (pipelines nas camadas Bronze/Silver).  
-- **Colunas obrigatórias presentes**: `VendorID`, `passenger_count`, `total_amount`, `tpep_pickup_datetime`, `tpep_dropoff_datetime`.  
-- **Período Jan–Mai/2023**: **OK**, filtrado na Silver.  
-- **Análises respondidas**: consultas SQL prontas (média `total_amount` por mês e média `passenger_count` por hora em Maio).  
-- **Qualidade, organização e justificativas**: ver _Arquitetura_, _Validações_ e _Boas práticas_.
+> **Nota metodológica:** quando uma métrica depende de uma coluna ausente numa frota (p.ex. `passenger_count`), a agregação considera **apenas as frotas que fornecem o campo** (Yellow/Green). Isso é explicitado nas consultas SQL.
 
+---
 
 ## 🧩 Pré-requisitos
 
-- Conta no **Databricks Community Edition**.
-- **Sem internet no cluster**: o download deve ser feito **fora** do Databricks e os arquivos enviados para um **Volume**.
-- Python 3.10+ (apenas se for baixar localmente).  
-- O arquivo `requirements.txt` lista dependências para execução local (não necessárias no Databricks).
+- Conta no **Databricks Community Edition** (cluster sem internet).
+- Download **offline** prévio (feito localmente) e upload para **Volumes** do UC.
+- Python 3.10+ localmente apenas se for usar o script de download.
+- O `requirements.txt` auxilia na execução local (não é necessário no Databricks).
 
+---
 
 ## 📥 Como obter os dados (offline)
 
-1) **Baixe localmente** os Parquet de **Yellow Taxi** (Jan–Mai/2023).
-
-Script exemplo abaixo:
+Como o Databricks CE **não tem internet**, baixe localmente e depois faça **upload** para um **Volume**. Script exemplo (ajuste anos/meses conforme sua estratégia):
 
 ```python
 import os, requests
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
-OUT = "nyc_taxi_yellow_2020_2025"
+BASE = "https://d37ci6vzurychx.cloudfront.net/trip-data/{}_tripdata_{}-{}.parquet"
+CATEGORIES = ["yellow", "green", "fhv", "fhvhv"]
+YEARS_FULL = [str(y) for y in range(2020, 2026)]  # uso em yellow/green
+MONTHS_FULL = [f"{m:02d}" for m in range(1, 13)]
+YEARS_MAY = ["2023"]                               # uso em fhv/fhvhv (maio)
+MONTHS_MAY = ["05"]
+
+def plan():
+    for cat in CATEGORIES:
+        if cat in ("yellow", "green"):
+            years, months = YEARS_FULL, MONTHS_FULL
+        else:
+            years, months = YEARS_MAY, MONTHS_MAY
+        for y in years:
+            for m in months:
+                yield cat, y, m
+
+OUT = "nyc_taxi_raw"
 os.makedirs(OUT, exist_ok=True)
 
-for year in range(2020, 2026):
-    for month in range(1, 13):
-        url = f"https://d37ci6vzurychx.cloudfront.net/trip-data/yellow_tripdata_{year}-{month:02d}.parquet"
-        path = os.path.join(OUT, f"yellow_{year}-{month:02d}.parquet")
-
-        if os.path.exists(path):
-            print("skip", path)
-            continue
-
-        r = requests.get(url)
+def fetch(cat, y, m):
+    url = BASE.format(cat, y, m)
+    path = os.path.join(OUT, f"{cat}_{y}-{m}.parquet")
+    if os.path.exists(path):
+        return f"skip {path}"
+    try:
+        r = requests.get(url, timeout=60)
         if r.status_code == 200:
             with open(path, "wb") as f:
                 f.write(r.content)
-            print("ok", url)
-        else:
-            print("miss", url, r.status_code)
+            return f"ok   {url}"
+        return f"miss {url} ({r.status_code})"
+    except Exception as e:
+        return f"err  {url} ({e})"
 
+with ThreadPoolExecutor(max_workers=8) as ex:
+    futures = [ex.submit(fetch, *args) for args in plan()]
+    for fut in as_completed(futures):
+        print(fut.result())
 ```
-2) **Envie os arquivos** via UI do Databricks para um **Volume** (recomendado) ou pasta gerenciada:
 
+**Upload sugerido (Volumes UC):**
 ```
-/Volumes/<catalog>/<schema>/nyc_taxi/raw/2023/
+/Volumes/workspace/nyc_taxi/raw/yellow/2020-2025/*.parquet
+/Volumes/workspace/nyc_taxi/raw/green/2020-2025/*.parquet
+/Volumes/workspace/nyc_taxi/raw/fhv/2023-05/*.parquet
+/Volumes/workspace/nyc_taxi/raw/fhvhv/2023-05/*.parquet
 ```
 
+---
 
 ## ▶️ Execução no Databricks CE (passo a passo)
 
-1. **Crie o Volume e Faça upload** dos arquivos Parquet (Jan–Mai/2023) para:
-   ```
-   /Volumes/workspace/nyc_taxi/raw/2023/
-   ```
+1. **Crie os Volumes e faça o upload** conforme a estrutura acima.
 
 2. **Bronze — ingestão e normalização mínima**  
-   Execute o notebook `01_ingestao_bronze.ipynb`, que:
-   - Lê todos os Parquet em `/Volumes/workspace/nyc_taxi/raw/2023/*.parquet`
-   - Padroniza schema e nomes
-   - Cria `anomes` (YYYYMM) a partir de `tpep_pickup_datetime`
-   - Persiste a Delta Table:
+   Notebook `01_ingestao_bronze.ipynb` (exemplo de lógica):
+   - Leitura por categoria (diretórios diferentes), padronização de nomes (`lower`), cast para schema alvo **por frota** e criação da coluna `category`.
+   - Derivação de `anomes` a partir de `*_pickup_datetime` (ex.: `tpep_pickup_datetime`, `lpep_pickup_datetime`, `pickup_datetime`).
+   - União com `unionByName(allowMissingColumns=True)` entre frotas.
+   - **Filtro de partições esparsas** (ex.: descartar `anomes` com `< 10k` linhas).
+   - Persistência da Delta Table particionada por `anomes`:
      ```
-     workspace.nyc_taxi.yellowtaxi_trips_sor
-     ```
-
-3. **Silver — projeção para o case**
-   Execute `02_transformacao_silver.ipynb`, que:
-   - Seleciona **apenas** as colunas obrigatórias
-   - Filtra **2023-01** a **2023-05**
-   - Particiona por `anomes` e salva como Delta:
-     ```
-     workspace.nyc_taxi.yellowtaxi_trips_2023_spec
+     workspace.nyc_taxi.trips_sor
      ```
 
-4. **Análises**
-   Execute `analysis.ipynb` (ou as consultas SQL abaixo).  
+3. **Silver — projeção para o case**  
+   Notebook `02_transformacao_silver.ipynb`:
+   - Seleção das colunas para o case. Para **compatibilizar frotas**, normalizamos nomes de data/hora para:
+     - `pickup_datetime` e `dropoff_datetime` (derivadas de `tpep_*`, `lpep_*` ou `*_datetime`).
+   - Filtro **2023-01** a **2023-05**.
+   - Particionamento por `anomes` e gravação:
+     ```
+     workspace.nyc_taxi.trips_2023_silver
+     ```
 
+4. **Análises**  
+   Notebook `analysis.ipynb` com consultas SQL (abaixo).
+
+---
 
 ## 🧱 Modelagem e Particionamento
 
-- **Chave de partição**: `anomes` (YYYYMM) calculado de `tpep_pickup_datetime` para refletir a **data efetiva do evento**.  
-- **Extração de metadados do arquivo**: quando necessário, use `_metadata.file_path` (Spark/Delta) — substitui `input_file_name()` em ambientes UC.  
-- **Nomes padronizados**: `snake_case`, colunas castadas para tipos consistentes.
+- **Chaves técnicas:** `category` (`yellow|green|fhv|fhvhv`) e `anomes` (`YYYYMM`).
+- **Datas unificadas na Silver:** `pickup_datetime`, `dropoff_datetime`.
+- **Particionamento por `anomes`** (reflete o **evento real** e otimiza _partition pruning_).
 
+---
 
 ## 🧪 Consultas de Resposta (SQL)
 
-**1) Média de `total_amount` por mês (Jan–Mai/2023):**
+**1) Média de `total_amount` por mês (Jan–Mai/2023, apenas frotas que possuem `total_amount`):**
 ```sql
-SELECT anomes, ROUND(AVG(total_amount), 2) AS media_total_amount
-FROM workspace.nyc_taxi.yellowtaxi_trips_2023_spec
+SELECT anomes,
+       ROUND(AVG(total_amount), 2) AS media_total_amount
+FROM workspace.nyc_taxi.trips_2023_silver
+WHERE anomes BETWEEN '202301' AND '202305'
+  AND total_amount IS NOT NULL            -- frotas sem esse campo não entram
 GROUP BY anomes
 ORDER BY anomes;
 ```
 
-**2) Média de `passenger_count` por hora do dia em Maio/2023:**
+**2) Média de `passenger_count` por hora do dia em Maio/2023 (frotas que possuem `passenger_count`: Yellow/Green):**
 ```sql
-SELECT HOUR(tpep_pickup_datetime) AS hora_do_dia,
+SELECT HOUR(pickup_datetime) AS hora_do_dia,
        ROUND(AVG(passenger_count), 2) AS media_passageiros
-FROM workspace.nyc_taxi.yellowtaxi_trips_2023_spec
+FROM workspace.nyc_taxi.trips_2023_silver
 WHERE anomes = '202305'
+  AND passenger_count IS NOT NULL         -- FHV e FHVHV normalmente não possuem esse campo
 GROUP BY hora_do_dia
 ORDER BY hora_do_dia;
 ```
 
+> Se desejar, você pode adicionar um `GROUP BY category` para comparar o comportamento entre frotas quando a coluna existir.
+
+---
 
 ## 🔍 Validações de Qualidade de Dados
 
-- **Presença de colunas obrigatórias** (fail-fast): checar existência no DataFrame antes de escrever a Silver.
-- **Controles de nulidade**: `VendorID`, `tpep_pickup_datetime`, `tpep_dropoff_datetime` não devem ser nulos na Silver.
-- **Regras de domínio** (exemplos):
-  - `passenger_count >= 0`
-  - `total_amount` pode ser negativo (ajustes), mas monitore outliers extremos.
-  - `tpep_dropoff_datetime >= tpep_pickup_datetime`
-- **Volumetria por partição**: alerta se partições de `anomes` tiverem volume anômalo.
+- **Presença de colunas obrigatórias** na Silver.
+- **Nulidade e domínios:**
+  - `pickup_datetime`/`dropoff_datetime` não nulos.
+  - `passenger_count >= 0` quando existir.
+  - `total_amount >= 0` (admitindo eventuais negativos por ajustes, mas monitorando outliers).
+  - `dropoff_datetime >= pickup_datetime`.
+- **Volumetria por partição** e alerta para `anomes` com baixíssimo volume.
 
-
-## 📚 Dicionário de Dados (Silver)
-
-| Campo                   | Tipo      | Descrição                                               |
-|------------------------|-----------|---------------------------------------------------------|
-| `vendorid`             | LONG      | Identificador do provedor                               |
-| `passenger_count`      | INT       | Número de passageiros                                   |
-| `total_amount`         | DOUBLE    | Valor total da corrida                                  |
-| `tpep_pickup_datetime` | TIMESTAMP | Data/hora do embarque                                   |
-| `tpep_dropoff_datetime`| TIMESTAMP | Data/hora do desembarque                                |
-| `anomes`               | STRING    | Partição no formato `YYYYMM` (derivada do pickup time)  |
-
+---
 
 ## ⚙️ Boas práticas e performance
 
-- **Delta Lake**: transações ACID e _time travel_ para auditoria e reprocessos.
-- **Particionamento por `anomes`**: melhora _pruning_ em filtros mensais.
+- **Delta Lake** (ACID, _time travel_, vacuum).
+- **Leitura em lote** por diretório e `unionByName` com `allowMissingColumns` para esquemas diferentes.
+- **`repartition("anomes")`** antes de escrever, melhorando o layout físico das partições.
+
+---
 
 ## 🗂️ Estrutura do Repositório
 
@@ -188,5 +217,9 @@ ifood-case/
 └─ requirements.txt
 ```
 
+---
 
+## 📌 Notas finais
 
+- As escolhas de cobertura por frota (**2020–2025** para Yellow/Green; **maio/2023** para FHV/FHVHV) foram feitas para **equilibrar escala** e **limitações** do Databricks CE, mantendo fidelidade ao enunciado da segunda questão.
+- Onde uma coluna não existe na fonte, a métrica é calculada sobre as frotas que **de fato fornecem** o campo — isso fica explícito nos `WHERE ... IS NOT NULL` das consultas.
