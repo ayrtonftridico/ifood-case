@@ -197,7 +197,7 @@ if __name__ == "__main__":
 
 ## 🧪 Consultas de Resposta (SQL)
 
-**1) Média de `total_amount` por mês (Jan–Mai/2023, apenas frotas que possuem `total_amount`):**
+**1) Média de `total_amount` por mês (Jan–Mai/2023, apenas para Yellow Taxis):**
 ```sql
 SELECT 
     anomes,
@@ -207,7 +207,7 @@ GROUP BY anomes
 ORDER BY anomes;
 ```
 
-**2) Média de `passenger_count` por hora do dia em Maio/2023 (frotas que possuem `passenger_count`: Yellow/Green):**
+**2) Média de `passenger_count` por hora do dia em Maio/2023:**
 ```sql
 SELECT 
     HOUR(pickup_datetime) AS hora_do_dia,
