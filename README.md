@@ -190,7 +190,7 @@ if __name__ == "__main__":
      > `passenger_count` **não existe** em FHV/FHVHV — fica **NULL** e não afeta o `AVG`.  
      Tabela (Delta, particionada por `anomes`):  
      ```
-     workspace.nyc_taxi.may_2023_min_gold
+     workspace.nyc_taxi.may_2023_gold
      ```
 
 ---
