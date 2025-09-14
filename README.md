@@ -259,5 +259,4 @@ ifood-case/
 
 ## 📌 Notas finais
 
-- As escolhas de cobertura por frota (**2020–2025** para Yellow/Green; **maio/2023** para FHV/FHVHV) foram feitas para **equilibrar escala** e **limitações** do Databricks CE, mantendo fidelidade ao enunciado da segunda questão.
-- Onde uma coluna não existe na fonte, a métrica é calculada sobre as frotas que **de fato fornecem** o campo — isso fica explícito nos `WHERE ... IS NOT NULL` das consultas.
+- As escolhas de cobertura por frota (**2020–2025** para Yellow; **maio/2023** para Green/FHV/FHVHV) foram feitas para **equilibrar escala** e **limitações** da versão teste do Databricks
