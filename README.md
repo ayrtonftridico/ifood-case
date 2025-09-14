@@ -12,7 +12,6 @@ Este projeto implementa um pipeline **reprodutível** para ingestão, padroniza�
 - [Pré-requisitos](#-pré-requisitos)
 - [Como obter os dados (offline)](#-como-obter-os-dados-offline)
 - [Execução no Databricks CE (passo a passo)](#%EF%B8%8F-execução-no-databricks-ce-passo-a-passo)
-- [Modelagem e Particionamento](#-modelagem-e-particionamento)
 - [Consultas de Resposta (SQL)](#-consultas-de-resposta-sql)
 - [Validações de Qualidade de Dados](#-validações-de-qualidade-de-dados)
 - [Boas práticas e performance](#%EF%B8%8F-boas-práticas-e-performance)
