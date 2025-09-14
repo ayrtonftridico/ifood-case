@@ -199,22 +199,21 @@ if __name__ == "__main__":
 
 **1) Média de `total_amount` por mês (Jan–Mai/2023, apenas frotas que possuem `total_amount`):**
 ```sql
-SELECT anomes,
-       ROUND(AVG(total_amount), 2) AS media_total_amount
-FROM workspace.nyc_taxi.trips_2023_silver
-WHERE anomes BETWEEN '202301' AND '202305'
-  AND total_amount IS NOT NULL
+SELECT 
+    anomes,
+    ROUND(AVG(total_amount), 2) AS media_total_amount
+FROM workspace.nyc_taxi.yellow_taxi_2023_jan_may_gold
 GROUP BY anomes
 ORDER BY anomes;
 ```
 
 **2) Média de `passenger_count` por hora do dia em Maio/2023 (frotas que possuem `passenger_count`: Yellow/Green):**
 ```sql
-SELECT HOUR(pickup_datetime) AS hora_do_dia,
-       ROUND(AVG(passenger_count), 2) AS media_passageiros
-FROM workspace.nyc_taxi.trips_2023_silver
+SELECT 
+    HOUR(pickup_datetime) AS hora_do_dia,
+    ROUND(AVG(passenger_count), 2) AS media_passageiros
+FROM workspace.nyc_taxi.may_2023_gold
 WHERE anomes = '202305'
-  AND passenger_count IS NOT NULL
 GROUP BY hora_do_dia
 ORDER BY hora_do_dia;
 ```
